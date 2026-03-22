@@ -98,6 +98,30 @@ class PositionManager:
                 trades_count INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS themes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                theme_name TEXT UNIQUE NOT NULL,
+                keywords TEXT,
+                first_detected_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS theme_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                theme_id INTEGER REFERENCES themes(id),
+                news_title TEXT,
+                news_url TEXT,
+                detected_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS theme_impacts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                theme_id INTEGER REFERENCES themes(id),
+                symbol TEXT NOT NULL,
+                price_change_pct REAL,
+                period_days INTEGER,
+                recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         conn.commit()
         conn.close()
