@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Union
 
 import numpy as np
 import pandas as pd
 from backtesting import Backtest, Strategy
+
+logger = logging.getLogger(__name__)
 
 
 class RangeStrategy(Strategy):
@@ -109,3 +112,48 @@ def save_results(
     # HTML
     html_path = output_dir / f"backtest_{safe_symbol}.html"
     bt.plot(filename=str(html_path), open_browser=False)
+
+
+def run_backtest_with_robustness(
+    df: pd.DataFrame,
+    range_upper: float,
+    range_lower: float,
+    initial_cash: int = 1_000_000,
+    commission: float = 0.001,
+    stop_loss_pct: float = 0.03,
+) -> tuple[dict, dict]:
+    """バックテスト実行後にロバスト性ゲートを自動実行する.
+
+    Returns:
+        (backtest_result, robustness_result)
+    """
+    from src.robust_tester import RobustTester
+
+    result, stats, bt = run_backtest(
+        df, range_upper, range_lower, initial_cash, commission, stop_loss_pct,
+    )
+
+    # 取引PnLリストを構築
+    trades = []
+    if hasattr(stats, "_trades") and stats._trades is not None and len(stats._trades) > 0:
+        trades = [float(t) for t in stats._trades["PnL"]]
+
+    tester = RobustTester()
+    robustness = tester.robustness_gate(
+        data=df,
+        strategy_class=RangeStrategy,
+        trades=trades,
+        cash=initial_cash,
+        commission=commission,
+        range_upper=range_upper,
+        range_lower=range_lower,
+        stop_loss_pct=stop_loss_pct,
+    )
+
+    if not robustness["overall_passed"]:
+        logger.warning(
+            "Robustness gate FAILED for backtest (return=%.2f%%, trades=%d)",
+            result["return_pct"], result["num_trades"],
+        )
+
+    return result, robustness

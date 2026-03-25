@@ -40,6 +40,26 @@ notification:
   discord_webhook_url: "${DISCORD_WEBHOOK_URL}"
   daily_report_time: "15:35"
 
+robustness:
+  walk_forward_min_pf: 1.0
+  sensitivity_max_range: 0.15
+  monte_carlo_max_dd: 0.30
+  monte_carlo_simulations: 1000
+
+theme_analysis:
+  enabled: true
+  check_interval_minutes: 30
+  feeds:
+    - name: "reuters_jp"
+      url: "https://assets.wor.jp/rss/rdf/reuters/top.rdf"
+    - name: "nikkei"
+      url: "https://assets.wor.jp/rss/rdf/nikkei/news.rdf"
+
+volume_spike:
+  enabled: true
+  threshold_multiplier: 2.0
+  lookback_days: 20
+
 logging:
   level: "INFO"
   log_dir: "data/logs"
