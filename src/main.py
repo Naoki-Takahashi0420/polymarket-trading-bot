@@ -13,14 +13,23 @@ from pathlib import Path
 
 import yaml
 
+from src.agents.fundamental_agent import FundamentalAgent
+from src.agents.sentiment_agent import SentimentAgent
+from src.agents.technical_agent import TechnicalAgent
+from src.agents.theme_agent import ThemeAgent
+from src.agents.volume_agent import VolumeAgent
 from src.data_fetcher import fetch_multiple, fetch_ohlcv
 from src.executor import Executor
 from src.kabu_api import KabuApiClient, KabuApiConfig
+from src.news_fetcher import NewsFetcher
 from src.notifier import DailyReport, Notifier
 from src.paper_trader import PaperTrader
+from src.portfolio_manager import PortfolioManager
 from src.position_manager import PositionManager
 from src.range_detector import detect_range_stocks
-from src.signal_generator import Signal, generate_signal
+from src.signal_generator import Signal, TradeSignal, generate_signal
+from src.theme_analyzer import ThemeAnalyzer
+from src.volume_spike_detector import VolumeSpikeDetector
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +177,35 @@ class TradingBot:
         # Symbols
         self.symbols = config.get("symbols", [])
 
+        # Analysis mode
+        analysis_config = config.get("analysis", {})
+        self.analysis_mode = analysis_config.get("mode", "single")
+
+        # Multi-agent setup
+        self.portfolio_mgr = None
+        if self.analysis_mode == "multi_agent":
+            self.news_fetcher = NewsFetcher()
+            self.theme_analyzer = ThemeAnalyzer()
+            self.volume_detector = VolumeSpikeDetector()
+
+            agents = [
+                TechnicalAgent(),
+                FundamentalAgent(),
+                SentimentAgent(
+                    news_fetcher=self.news_fetcher,
+                    theme_analyzer=self.theme_analyzer,
+                ),
+                VolumeAgent(detector=self.volume_detector),
+                ThemeAgent(theme_analyzer=self.theme_analyzer),
+            ]
+            weights = analysis_config.get("agent_weights")
+            self.portfolio_mgr = PortfolioManager(
+                agents=agents,
+                weights=weights,
+                buy_threshold=analysis_config.get("buy_threshold", 0.3),
+                sell_threshold=analysis_config.get("sell_threshold", -0.3),
+            )
+
     def run(self) -> None:
         """メインエントリーポイント."""
         self.running = True
@@ -252,7 +290,7 @@ class TradingBot:
         return ok
 
     def trading_loop(self) -> None:
-        """1サイクルの処理: データ取得→レンジ検出→シグナル→執行→通知."""
+        """1サイクルの処理: データ取得→分析→執行→通知."""
         logger.info("--- Trading cycle start ---")
 
         # 古い注文のキャンセル
@@ -284,7 +322,15 @@ class TradingBot:
             logger.warning("No data fetched, skipping cycle")
             return
 
-        # レンジ検出
+        if self.analysis_mode == "multi_agent" and self.portfolio_mgr:
+            self._trading_loop_multi_agent(data)
+        else:
+            self._trading_loop_single(data)
+
+        logger.info("--- Trading cycle end ---")
+
+    def _trading_loop_single(self, data: dict) -> None:
+        """シングルモード: レンジ検出→シグナル生成→執行."""
         rd_config = self.config.get("range_detection", {})
         rankings = detect_range_stocks(
             data,
@@ -298,7 +344,6 @@ class TradingBot:
             logger.info("No range stocks detected")
             return
 
-        # シグナル生成 & 執行
         trading_config = self.config.get("trading", {})
         for info in rankings[:self.max_positions]:
             try:
@@ -321,7 +366,60 @@ class TradingBot:
             except Exception as e:
                 logger.error("Error processing %s: %s", info.symbol, e, exc_info=True)
 
-        logger.info("--- Trading cycle end ---")
+    def _trading_loop_multi_agent(self, data: dict) -> None:
+        """マルチエージェントモード: 全エージェント分析→PM統合判断→執行."""
+        # ニュース取得（全銘柄共通）
+        news_items = []
+        active_themes = []
+        try:
+            news_items = self.news_fetcher.fetch_all()
+            active_themes = self.theme_analyzer.detect_themes(news_items)
+        except Exception as e:
+            logger.warning("Failed to fetch news/themes: %s", e)
+
+        trading_config = self.config.get("trading", {})
+
+        for symbol, df in data.items():
+            try:
+                result = self.portfolio_mgr.evaluate(
+                    symbol, df,
+                    news_items=news_items,
+                    active_themes=active_themes,
+                )
+
+                logger.info(
+                    "Multi-agent result for %s: %s (score=%.4f)",
+                    symbol, result["final_action"], result["final_score"],
+                )
+                logger.debug("%s", result["reasoning"])
+
+                if result["final_action"] in ("BUY", "SELL"):
+                    current_price = float(df["Close"].iloc[-1])
+                    sig = TradeSignal(
+                        symbol=symbol,
+                        signal=Signal.BUY if result["final_action"] == "BUY" else Signal.SELL,
+                        current_price=current_price,
+                        range_upper=current_price * 1.05,
+                        range_lower=current_price * 0.95,
+                        stop_loss=current_price * (1 - trading_config.get("stop_loss_pct", 0.03)),
+                        position_size=self._calc_position_size(current_price, trading_config),
+                    )
+
+                    self.notifier.notify_signal(sig)
+                    order = self.executor.execute_signal(sig)
+                    if order:
+                        logger.info("Order placed for %s: %s", symbol, order.order_id)
+
+            except Exception as e:
+                logger.error("Error in multi-agent analysis for %s: %s", symbol, e, exc_info=True)
+
+    def _calc_position_size(self, price: float, trading_config: dict) -> int:
+        """ポジションサイズを計算する（100株単位）."""
+        total_capital = self.config.get("backtest", {}).get("initial_cash", 1_000_000)
+        pct = trading_config.get("position_size_pct", 0.10)
+        alloc = total_capital * pct
+        size = int(alloc // price) if price > 0 else 0
+        return (size // 100) * 100
 
     def post_market_report(self) -> None:
         """取引後の日次レポート生成・送信."""

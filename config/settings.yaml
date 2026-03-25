@@ -60,6 +60,17 @@ volume_spike:
   threshold_multiplier: 2.0
   lookback_days: 20
 
+analysis:
+  mode: "multi_agent"  # "single" or "multi_agent"
+  agent_weights:
+    technical: 0.30
+    fundamental: 0.20
+    sentiment: 0.15
+    volume: 0.20
+    theme: 0.15
+  buy_threshold: 0.3
+  sell_threshold: -0.3
+
 logging:
   level: "INFO"
   log_dir: "data/logs"
