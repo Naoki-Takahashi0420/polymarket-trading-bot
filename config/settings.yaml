@@ -1,0 +1,45 @@
+symbols:
+  - "9432.T"  # NTT
+  - "7203.T"  # トヨタ
+  - "6758.T"  # ソニー
+  - "8306.T"  # 三菱UFJ
+  - "6861.T"  # キーエンス
+  - "9984.T"  # ソフトバンクG
+  - "6501.T"  # 日立
+  - "8035.T"  # 東京エレクトロン
+  - "4063.T"  # 信越化学
+  - "7741.T"  # HOYA
+
+range_detection:
+  lookback_days: 60
+  bb_width_threshold: 0.08
+  atr_ratio_threshold: 0.02
+  range_containment_threshold: 0.70
+
+backtest:
+  initial_cash: 1000000
+  commission: 0.001
+  start_date: "2025-03-01"
+  end_date: "2026-03-20"
+
+kabu_api:
+  host: "localhost"
+  port: 18081  # デモ
+  password: "${KABU_API_PASSWORD}"
+
+trading:
+  mode: "paper"  # paper or live
+  position_size_pct: 0.10
+  stop_loss_pct: 0.03
+  max_positions: 3
+  max_per_stock: 500000  # 1銘柄最大50万円
+  interval_seconds: 300
+  stale_order_minutes: 30
+
+notification:
+  discord_webhook_url: "${DISCORD_WEBHOOK_URL}"
+  daily_report_time: "15:35"
+
+logging:
+  level: "INFO"
+  log_dir: "data/logs"
