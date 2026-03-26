@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from backtesting import Backtest
 
+from src.deflated_sr import DeflatedSharpeRatio
+
 logger = logging.getLogger(__name__)
 
 
@@ -186,12 +188,18 @@ class RobustTester:
         trades: list[float],
         cash: int = 1_000_000,
         commission: float = 0.001,
+        backtest_sr: float = 0.0,
+        sr_std_of_all_trials: float = 0.5,
         **strategy_params,
     ) -> dict:
-        """3つのチェックを全実行し、総合判定.
+        """4つのチェックを全実行し、総合判定.
+
+        Args:
+            backtest_sr: バックテストで得られたシャープレシオ（DSR用）
+            sr_std_of_all_trials: 全試行のSRの標準偏差（DSR用）
 
         Returns:
-            {"walk_forward": dict, "sensitivity": dict, "monte_carlo": dict, "overall_passed": bool}
+            {"walk_forward": dict, "sensitivity": dict, "monte_carlo": dict, "dsr": dict, "overall_passed": bool}
         """
         wf = self.walk_forward_test(
             data, strategy_class, cash=cash, commission=commission, **strategy_params,
@@ -201,19 +209,31 @@ class RobustTester:
         )
         mc = self.monte_carlo_simulation(trades)
 
-        overall = wf["passed"] and sens["passed"] and mc["passed"]
+        dsr_checker = DeflatedSharpeRatio()
+        dsr_checker.increment_trials()
+        dsr_result = dsr_checker.gate(
+            sr_observed=backtest_sr,
+            sr_std=sr_std_of_all_trials,
+            T=len(data),
+        )
+
+        overall = wf["passed"] and sens["passed"] and mc["passed"] and dsr_result["passed"]
 
         result = {
             "walk_forward": wf,
             "sensitivity": sens,
             "monte_carlo": mc,
+            "dsr": dsr_result,
             "overall_passed": overall,
         }
 
         if not overall:
-            logger.warning("Robustness gate FAILED: wf=%s, sens=%s, mc=%s", wf["passed"], sens["passed"], mc["passed"])
+            logger.warning(
+                "Robustness gate FAILED: wf=%s, sens=%s, mc=%s, dsr=%s (dsr_value=%.4f)",
+                wf["passed"], sens["passed"], mc["passed"], dsr_result["passed"], dsr_result["dsr"],
+            )
         else:
-            logger.info("Robustness gate PASSED")
+            logger.info("Robustness gate PASSED (DSR=%.4f, N=%d)", dsr_result["dsr"], dsr_result["N_trials"])
 
         return result
 
