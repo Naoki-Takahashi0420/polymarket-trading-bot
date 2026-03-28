@@ -71,6 +71,22 @@ analysis:
   buy_threshold: 0.3
   sell_threshold: -0.3
 
+deflated_sr:
+  enabled: true
+  significance_threshold: 0.95
+  trial_count_file: "data/trial_count.json"
+
+j_quants:
+  enabled: true
+  refresh_token: "${JQUANTS_REFRESH_TOKEN}"
+  base_url: "https://api.jquants.com/v1"
+
+x_sentiment:
+  enabled: true
+  api_key: "${GROK_API_KEY}"
+  fallback_to_web: true
+  search_keywords: ["投資", "株", "決算", "上方修正", "下方修正"]
+
 logging:
   level: "INFO"
   log_dir: "data/logs"
